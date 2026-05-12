@@ -24,9 +24,9 @@
     "@commitlint/cli": "20.2.0",
     "@commitlint/config-conventional": "20.2.0",
     "@commitlint/types": "20.2.0",
-    "@eslint/eslintrc": "3.3.3",
+    "@eslint/eslintrc": "3.3.5",
     "@eslint/js": "9.39.1",
-    "@github/local-action": "7.0.0",
+    "@github/local-action": "7.0.1",
     "@octokit/rest": "22.0.1",
     "@types/semver": "7.7.1",
     "@vercel/ncc": "0.38.4",
@@ -37,10 +37,10 @@
     "husky": "9.1.7",
     "lint-staged": "16.2.7",
     "package-changed": "3.0.0",
-    "prettier": "3.7.4",
+    "prettier": "3.8.3",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.48.1",
-    "vitest": "4.0.15"
+    "typescript-eslint": "8.59.3",
+    "vitest": "4.1.6"
   },
   "pnpm": {
     "overrides": {
