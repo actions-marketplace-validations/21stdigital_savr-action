@@ -1,13 +1,14 @@
 import { debug, info, warning } from '@actions/core'
 
-import { sanitizeLogOutput } from '../utils/index.js'
-import { VersionType } from '../version/index.js'
+import { sanitizeLogOutput } from './utils.js'
+import { VersionType } from './version.js'
 
 export interface Commit {
   type: string
   scope?: string
   subject: string
   message: string
+  body?: string
   breaking: boolean
 }
 
@@ -30,13 +31,14 @@ const COMMIT_TYPES = [
   'revert',
   'build'
 ] as const
-const COMMIT_REGEX = new RegExp(`^(${COMMIT_TYPES.join('|')})(!?)(?:\\(([^)]+)\\))?: (.+)`)
+const COMMIT_REGEX = new RegExp(`^(${COMMIT_TYPES.join('|')})(?:\\(([^)]+)\\))?(!?):\\s*(.+)`)
 
 export const parseCommit = (message: string): Commit => {
   // Sanitize commit message to prevent workflow command injection in debug logs
   debug(`Parsing commit message: ${sanitizeLogOutput(message)}`)
-  // Extract only the first line for parsing and display
-  const firstLine = message.split('\n')[0]
+  // Keep first line for conventional commit parsing and retain the rest as body.
+  const [firstLine, ...remainingLines] = message.split(/\r?\n/)
+  const body = remainingLines.join('\n').trim()
   const match = COMMIT_REGEX.exec(firstLine)
 
   if (!match) {
@@ -45,12 +47,13 @@ export const parseCommit = (message: string): Commit => {
       type: 'chore',
       subject: firstLine,
       message: firstLine,
+      body,
       breaking: false
     }
   }
 
-  const [, type, isBreaking, scope, subject] = match
-  const breaking = isBreaking === '!' || message.includes('BREAKING CHANGE:')
+  const [, type, scope, isBreaking, subject] = match
+  const breaking = isBreaking === '!' || /BREAKING[ -]CHANGE:/.test(message)
 
   debug(`Parsed commit - Type: ${type}, Scope: ${scope || 'none'}, Breaking: ${String(breaking)}`)
   return {
@@ -58,6 +61,7 @@ export const parseCommit = (message: string): Commit => {
     scope,
     subject,
     message: firstLine,
+    body,
     breaking
   }
 }
@@ -81,20 +85,27 @@ export const categorizeCommits = (commits: Commit[]): CategorizedCommits => {
 
 export const determineVersionBump = (categorizedCommits: CategorizedCommits): VersionType | undefined => {
   debug('Determining version bump based on categorized commits')
+  const versionBump =
+    categorizedCommits.breaking.length > 0
+      ? 'major'
+      : categorizedCommits.features.length > 0
+        ? 'minor'
+        : categorizedCommits.fixes.length > 0
+          ? 'patch'
+          : undefined
 
-  if (categorizedCommits.breaking.length > 0) {
-    info('Breaking changes detected - major version bump required')
-    return 'major'
-  }
-  if (categorizedCommits.features.length > 0) {
-    info('New features detected - minor version bump required')
-    return 'minor'
-  }
-  if (categorizedCommits.fixes.length > 0) {
-    info('Bug fixes detected - patch version bump required')
-    return 'patch'
+  if (versionBump) {
+    const versionBumpMessage =
+      versionBump === 'major'
+        ? 'Breaking changes detected - major version bump required'
+        : versionBump === 'minor'
+          ? 'New features detected - minor version bump required'
+          : 'Bug fixes detected - patch version bump required'
+
+    info(versionBumpMessage)
+  } else {
+    debug('No version bump required')
   }
 
-  debug('No version bump required')
-  return undefined
+  return versionBump
 }

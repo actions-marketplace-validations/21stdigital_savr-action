@@ -1,5 +1,5 @@
 name: SAVR Action
-description: GitHub Action that automatically drafts semantic GitHub Releases based on Conventional Commits.
+description: GitHub Action that keeps draft releases ready so teams can publish manually from the GitHub Releases UI.
 author: Fabian Pahl
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
@@ -13,7 +13,7 @@ inputs:
     description: Token used for GitHub API authentication
     required: true
   tag-prefix:
-    description: 'The prefix for version tags (default: v)'
+    description: 'The prefix for version tags (default: v). Must be 20 characters or fewer and contain only letters, numbers, dots (.), hyphens (-), underscores (_), and slashes (/).'
     required: false
     default: 'v'
   release-branch:
@@ -27,6 +27,7 @@ inputs:
   release-notes-template:
     description: A template to format the generated release notes
     required: false
+    # Keep this default in sync with src/templates.ts -> DEFAULT_TEMPLATE fallback.
     default: |
       {{#if features}}
       ### ✨ Features
@@ -67,8 +68,14 @@ inputs:
 
 # Define your outputs here.
 outputs:
+  skipped:
+    description: Whether release creation was skipped (true when dry-run, no version bump, or no new commits)
+  dry-run:
+    description: Whether the action ran in dry-run mode
   version:
     description: The calculated version for the release
+  tag:
+    description: The full tag name including prefix
   release-url:
     description: The URL of the created or updated draft release
   release-id:

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { categorizeCommits, determineVersionBump, parseCommit } from '../src/commits/index.js'
+import { categorizeCommits, determineVersionBump, parseCommit } from '../src/commits.js'
 
 describe('commits', () => {
   describe('parseCommit', () => {
@@ -10,6 +10,7 @@ describe('commits', () => {
         type: 'feat',
         subject: 'add new feature',
         message: 'feat: add new feature',
+        body: '',
         breaking: false
       })
     })
@@ -21,6 +22,7 @@ describe('commits', () => {
         scope: 'api',
         subject: 'fix endpoint',
         message: 'fix(api): fix endpoint',
+        body: '',
         breaking: false
       })
     })
@@ -31,6 +33,19 @@ describe('commits', () => {
         type: 'feat',
         subject: 'breaking change',
         message: 'feat!: breaking change',
+        body: '',
+        breaking: true
+      })
+    })
+
+    it('should detect breaking changes when ! appears after scope', () => {
+      const commit = parseCommit('feat(api)!: breaking change')
+      expect(commit).toEqual({
+        type: 'feat',
+        scope: 'api',
+        subject: 'breaking change',
+        message: 'feat(api)!: breaking change',
+        body: '',
         breaking: true
       })
     })
@@ -41,6 +56,7 @@ describe('commits', () => {
         type: 'chore',
         subject: 'random commit message',
         message: 'random commit message',
+        body: '',
         breaking: false
       })
     })
@@ -51,6 +67,7 @@ describe('commits', () => {
         type: 'feat',
         subject: 'add new feature',
         message: 'feat: add new feature',
+        body: 'This is a detailed description of the feature.',
         breaking: false
       })
     })
@@ -62,6 +79,7 @@ describe('commits', () => {
         scope: 'api,ui',
         subject: 'add new feature',
         message: 'feat(api,ui): add new feature',
+        body: '',
         breaking: false
       })
     })
@@ -72,6 +90,18 @@ describe('commits', () => {
         type: 'feat',
         subject: 'add new feature',
         message: 'feat: add new feature',
+        body: 'BREAKING CHANGE: This is a breaking change',
+        breaking: true
+      })
+    })
+
+    it('should handle commit messages with hyphenated breaking change footer', () => {
+      const commit = parseCommit('feat: add new feature\n\nBREAKING-CHANGE: This is a breaking change')
+      expect(commit).toEqual({
+        type: 'feat',
+        subject: 'add new feature',
+        message: 'feat: add new feature',
+        body: 'BREAKING-CHANGE: This is a breaking change',
         breaking: true
       })
     })
@@ -84,8 +114,14 @@ describe('commits', () => {
         type: 'feat',
         subject: 'support multiple languages',
         message: 'feat: support multiple languages',
+        body: '* feat: enhance authentication flow\n* fix: update locale type',
         breaking: false
       })
+    })
+
+    it('should preserve multiline commit body formatting except subject line', () => {
+      const commit = parseCommit('fix: patch parser\n\nFirst paragraph.\n\nSecond paragraph.')
+      expect(commit.body).toBe('First paragraph.\n\nSecond paragraph.')
     })
   })
 

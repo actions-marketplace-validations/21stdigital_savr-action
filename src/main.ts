@@ -1,11 +1,25 @@
 import { getBooleanInput, getInput, info, setOutput } from '@actions/core'
 import { context, getOctokit } from '@actions/github'
+import { valid } from 'semver'
 
-import { categorizeCommits, determineVersionBump } from './commits/index.js'
-import { createOrUpdateRelease, getCommits, getTags, type GitHubContext } from './github/index.js'
-import { compileReleaseNotes } from './templates/index.js'
-import { sanitizeLogOutput } from './utils/index.js'
-import { getLatestVersion, incrementVersion } from './version/index.js'
+import { categorizeCommits, determineVersionBump } from './commits.js'
+import { createOrUpdateRelease, getAnnotatedTag, getCommits, getGitRef, getTags, type GitHubContext } from './github.js'
+import { compileReleaseNotes } from './templates.js'
+import { sanitizeLogOutput } from './utils.js'
+import { getLatestVersion, incrementVersion } from './version.js'
+
+interface ReleaseOutputs {
+  skipped: boolean
+  version: string
+  tag: string
+  releaseUrl?: string
+  releaseId?: string
+}
+
+const BRANCH_REF_PREFIX = 'refs/heads/'
+
+const normalizeBranchRef = (branchRef: string): string =>
+  branchRef.startsWith(BRANCH_REF_PREFIX) ? branchRef.slice(BRANCH_REF_PREFIX.length) : branchRef
 
 const processCommits = async (githubContext: GitHubContext, head: string, sinceTag?: string) => {
   const commits = await getCommits(githubContext, head, sinceTag)
@@ -16,21 +30,49 @@ const processCommits = async (githubContext: GitHubContext, head: string, sinceT
   })
 
   const categorizedCommits = categorizeCommits(commits)
-  info('Categorized commits:')
-  info(`Features: ${categorizedCommits.features.length.toString()}`)
-  info(`Fixes: ${categorizedCommits.fixes.length.toString()}`)
-  info(`Breaking: ${categorizedCommits.breaking.length.toString()}`)
-
   return { commits, categorizedCommits }
 }
 
 export const run = async (): Promise<void> => {
   const token = getInput('github-token', { required: true })
   const tagPrefix = getInput('tag-prefix')
-  const releaseBranch = getInput('release-branch')
+  const releaseBranchInput = getInput('release-branch')
   const releaseNotesTemplate = getInput('release-notes-template')
   const dryRun = getBooleanInput('dry-run')
   const initialVersion = getInput('initial-version')
+  if (!valid(initialVersion)) {
+    throw new Error(`Invalid initial version: "${initialVersion}". Must be a valid semver string (e.g., 1.0.0)`)
+  }
+
+  if (tagPrefix.length > 20) {
+    throw new Error(`tag-prefix must be at most 20 characters (got ${String(tagPrefix.length)})`)
+  }
+
+  if (!/^[a-zA-Z0-9._\-/]*$/.test(tagPrefix)) {
+    throw new Error(
+      `tag-prefix contains invalid characters: "${tagPrefix}". Only alphanumeric, dots, hyphens, underscores, and slashes are allowed`
+    )
+  }
+
+  if (!releaseBranchInput.trim()) {
+    throw new Error('release-branch must not be empty')
+  }
+
+  const releaseBranch = normalizeBranchRef(releaseBranchInput.trim())
+  const triggerRef = context.ref.trim()
+
+  if (!triggerRef.startsWith(BRANCH_REF_PREFIX)) {
+    info(`Skipping release: workflow was triggered by non-branch ref "${triggerRef}"`)
+    return
+  }
+
+  const triggerBranch = normalizeBranchRef(triggerRef)
+  if (triggerBranch !== releaseBranch) {
+    info(
+      `Skipping release: configured release-branch "${releaseBranch}" does not match triggering branch "${triggerBranch}"`
+    )
+    return
+  }
 
   const octokit = getOctokit(token)
   const { owner, repo } = context.repo
@@ -39,7 +81,16 @@ export const run = async (): Promise<void> => {
     throw new Error('Unable to determine repository owner and name from context')
   }
 
+  setOutput('dry-run', dryRun.toString())
+
   const githubContext = { owner, repo, octokit }
+  const setReleaseOutputs = (outputs: ReleaseOutputs) => {
+    setOutput('skipped', outputs.skipped.toString())
+    setOutput('release-url', outputs.releaseUrl ?? '')
+    setOutput('release-id', outputs.releaseId ?? '')
+    setOutput('version', outputs.version)
+    setOutput('tag', outputs.tag)
+  }
 
   const tags = await getTags(githubContext)
   const latestTag = getLatestVersion(tags, tagPrefix)
@@ -49,7 +100,8 @@ export const run = async (): Promise<void> => {
     const tagName = `${tagPrefix}${initialVersion}`
     const releaseName = initialVersion
 
-    const { categorizedCommits } = await processCommits(githubContext, 'HEAD')
+    const headRef = await getGitRef(githubContext, `heads/${releaseBranch}`)
+    const { categorizedCommits } = await processCommits(githubContext, headRef.object.sha)
     const releaseNotes = compileReleaseNotes(releaseNotesTemplate, {
       version: initialVersion,
       ...categorizedCommits
@@ -61,35 +113,70 @@ export const run = async (): Promise<void> => {
       info('Release notes:')
       // Sanitize release notes to prevent workflow command injection
       info(sanitizeLogOutput(releaseNotes))
+      setReleaseOutputs({
+        skipped: true,
+        version: initialVersion,
+        tag: tagName
+      })
       return
     }
 
     const release = await createOrUpdateRelease(githubContext, tagName, releaseName, releaseNotes)
-    setOutput('release-url', release.url)
-    setOutput('release-id', release.id.toString())
-    setOutput('version', release.tagName)
+    setReleaseOutputs({
+      skipped: false,
+      releaseUrl: release.url,
+      releaseId: release.id.toString(),
+      version: initialVersion,
+      tag: release.tagName
+    })
     return
   }
 
-  const { data: tagData } = await octokit.rest.git.getRef({ owner, repo, ref: `tags/${latestTag.name}` })
-  const { data: headData } = await octokit.rest.git.getRef({ owner, repo, ref: `heads/${releaseBranch}` })
+  const tagData = await getGitRef(githubContext, `tags/${latestTag.name}`)
+  const headData = await getGitRef(githubContext, `heads/${releaseBranch}`)
 
-  info(`Latest tag SHA: ${tagData.object.sha}`)
+  let latestTagCommitSha = tagData.object.sha
+  if (tagData.object.type === 'tag') {
+    const annotatedTagData = await getAnnotatedTag(githubContext, tagData.object.sha)
+
+    if (annotatedTagData.object.type !== 'commit') {
+      throw new Error(
+        `Latest tag ${latestTag.name} does not reference a commit (found: ${annotatedTagData.object.type})`
+      )
+    }
+
+    latestTagCommitSha = annotatedTagData.object.sha
+    info(`Latest tag ref SHA: ${tagData.object.sha}`)
+    info(`Latest tag commit SHA: ${latestTagCommitSha}`)
+  } else {
+    info(`Latest tag SHA: ${latestTagCommitSha}`)
+  }
+
   info(`Head SHA: ${headData.object.sha}`)
 
   // If HEAD and tag point to the same commit, there are no new commits to process
-  if (headData.object.sha === tagData.object.sha) {
+  if (headData.object.sha === latestTagCommitSha) {
     info('HEAD and latest tag point to the same commit - no changes to release')
+    setReleaseOutputs({
+      skipped: true,
+      version: latestTag.version,
+      tag: latestTag.name
+    })
     return
   }
 
-  const { categorizedCommits } = await processCommits(githubContext, headData.object.sha, tagData.object.sha)
+  const { categorizedCommits } = await processCommits(githubContext, headData.object.sha, latestTagCommitSha)
 
   let newVersion = latestTag.version
   const versionBump = determineVersionBump(categorizedCommits)
 
   if (versionBump == null) {
     info('No version bump needed - skipping release creation')
+    setReleaseOutputs({
+      skipped: true,
+      version: latestTag.version,
+      tag: latestTag.name
+    })
     return
   }
 
@@ -106,15 +193,24 @@ export const run = async (): Promise<void> => {
     info('Release notes:')
     // Sanitize release notes to prevent workflow command injection
     info(sanitizeLogOutput(releaseNotes))
+    setReleaseOutputs({
+      skipped: true,
+      version: newVersion,
+      tag: `${tagPrefix}${newVersion}`
+    })
     return
   }
 
   const tagName = `${tagPrefix}${newVersion}`
   const releaseName = newVersion
 
-  const release = await createOrUpdateRelease(githubContext, tagName, releaseName, releaseNotes)
+  const release = await createOrUpdateRelease(githubContext, tagName, releaseName, releaseNotes, headData.object.sha)
 
-  setOutput('release-url', release.url)
-  setOutput('release-id', release.id.toString())
-  setOutput('version', release.tagName)
+  setReleaseOutputs({
+    skipped: false,
+    releaseUrl: release.url,
+    releaseId: release.id.toString(),
+    version: newVersion,
+    tag: release.tagName
+  })
 }
