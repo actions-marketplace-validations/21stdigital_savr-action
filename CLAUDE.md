@@ -11,7 +11,7 @@ SAVR (Semantic Automatic Version Releaser) is a GitHub Action that automatically
 ### Toolchain
 
 - Node ≥24 required (matches the action runtime `using: node24` in `action.yml`; CI workflows also pin `node-version: 24`)
-- Package manager pinned to pnpm 10.7.1 via the `packageManager` field — prefer `pnpm` over `npm`/`yarn` for all scripts
+- Package manager pinned to pnpm 11.9.0 via the `packageManager` field — prefer `pnpm` over `npm`/`yarn` for all scripts. pnpm settings (dependency `overrides`, `allowBuilds`, `engineStrict`, `saveExact`) live in `pnpm-workspace.yaml`, not `package.json`/`.npmrc` — pnpm 11 no longer reads them from those locations
 
 ### Building
 
@@ -144,7 +144,7 @@ Breaking changes are detected by:
 ### Bundled `dist/` and CI Auto-Rebuild
 
 - `dist/index.js` is committed — GitHub Actions execute the bundled output directly, so it must ship with every version
-- `.github/workflows/dist-rebuild.yml` runs on `pull_request_target` and auto-commits a rebuilt `dist/` back to the PR when `src/` changed but `dist/` wasn't refreshed
+- The rebuild is split for security (see `docs/adr/0001-dist-rebuild-split-flow.md`): the unprivileged `test.yml` (`pull_request`, no write token) builds `dist/` and uploads it as an artifact when it changed; the privileged `commit-dist.yml` (`workflow_run`, `contents: write`, runs from the default branch) downloads that artifact and commits it without ever executing PR-controlled code
 - Contributors do **not** need to run `pnpm build` before opening a PR; the workflow reconciles it. Local rebuilds are only needed when testing the action outside of CI
 
 ### Dry-run Mode
@@ -169,3 +169,17 @@ Tests located in `__tests__/`:
 - `github.test.ts` - GitHub API interactions
 - `utils.test.ts` - Utility function tests
 - `main.test.ts` - End-to-end workflow testing
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (`21stdigital/savr-action`) via the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — none exist yet, create on first use. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
