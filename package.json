@@ -15,14 +15,14 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@actions/core": "3.0.0",
-    "@actions/github": "9.0.0",
+    "@actions/core": "3.0.1",
+    "@actions/github": "9.1.1",
     "handlebars": "4.7.9",
-    "semver": "7.7.4"
+    "semver": "7.8.5"
   },
   "devDependencies": {
-    "@commitlint/cli": "20.5.0",
-    "@commitlint/config-conventional": "20.5.0",
+    "@commitlint/cli": "21.1.0",
+    "@commitlint/config-conventional": "21.1.0",
     "@commitlint/types": "20.5.0",
     "@eslint/js": "10.0.1",
     "@github/local-action": "7.0.1",
@@ -32,14 +32,14 @@
     "eslint": "10.5.0",
     "eslint-plugin-import": "2.32.0",
     "eslint-plugin-prefer-arrow-functions": "3.9.1",
-    "eslint-plugin-simple-import-sort": "12.1.1",
+    "eslint-plugin-simple-import-sort": "13.0.0",
     "husky": "9.1.7",
-    "lint-staged": "16.4.0",
+    "lint-staged": "17.0.8",
     "package-changed": "3.0.0",
     "prettier": "3.8.4",
     "typescript": "5.9.3",
     "typescript-eslint": "8.61.1",
-    "vite": "7.3.5",
+    "vite": "8.1.0",
     "vitest": "4.1.9"
   }
 }
